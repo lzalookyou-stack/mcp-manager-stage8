@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from dataclasses import dataclass, field
@@ -16,10 +17,10 @@ from app.events import EventBus
 from app.install import Installer, ManagedRoots
 from app.install.provider import GitHubFileProvider
 from app.install.service import InstallService, InstallUnavailable
-from app.services.adapter_service import AdapterService
 from app.search.github_client import GitHubClient
 from app.security import require_github_source
 from app.services import PluginService
+from app.services.adapter_service import AdapterService
 from app.session import SessionStore
 
 
@@ -31,7 +32,7 @@ class Runtime:
     events: EventBus = field(default_factory=EventBus)
     sessions: SessionStore = field(default_factory=SessionStore)
     installs: InstallService | None = None
-    adapters: "AdapterService | None" = None
+    adapters: AdapterService | None = None
 
     @classmethod
     def create(
@@ -40,7 +41,7 @@ class Runtime:
         *,
         github: GitHubClient | None = None,
         events: EventBus | None = None,
-    ) -> "Runtime":
+    ) -> Runtime:
         settings = settings or load_settings()
         conn = open_database(settings.db_path)
         if github is None:
@@ -86,5 +87,6 @@ class Runtime:
     def close(self) -> None:
         try:
             self.conn.close()
-        except Exception:  # pragma: no cover - 关闭失败不影响退出
-            pass
+        except Exception as exc:  # pragma: no cover - 关闭失败不影响退出
+            # 不静默：如实记录，但不阻断退出流程
+            logging.getLogger(__name__).warning("关闭数据库连接失败：%s", exc)

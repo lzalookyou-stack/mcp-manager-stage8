@@ -14,9 +14,10 @@ MCP Server 是**可执行**类插件：本系统**不**自动安装其依赖、*
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from app.adapters.base import AdapterError, ClientProfile, PluginAdapter, _text
+from app.adapters.base import AdapterError, ClientProfile, PluginAdapter
 from app.models import EvidenceLevel, Plugin, PluginKind
 
 # 常见 MCP Server 入口文件（小写比较）

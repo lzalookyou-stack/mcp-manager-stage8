@@ -16,7 +16,7 @@ import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.db import transaction
@@ -37,7 +37,7 @@ class ManagedRoots:
     config_root: Path
 
     @classmethod
-    def create(cls, data_dir: Path | str) -> "ManagedRoots":
+    def create(cls, data_dir: Path | str) -> ManagedRoots:
         base = Path(data_dir).expanduser().resolve()
         roots = cls(
             data_dir=base,
@@ -82,7 +82,7 @@ def _safe_component(value: str) -> str:
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def atomic_write(path: Path, data: bytes) -> None:
@@ -245,16 +245,40 @@ def owned_paths(conn: sqlite3.Connection, plugin_id: str) -> list[str]:
 
 
 def remove_owned_files(
-    conn: sqlite3.Connection, roots: ManagedRoots, *, plugin_id: str
+    conn: sqlite3.Connection,
+    roots: ManagedRoots,
+    *,
+    plugin_id: str,
+    skipped: list[str] | None = None,
 ) -> list[str]:
-    """删除归属台账中登记且位于受管根目录内的文件；返回实际删除的路径。"""
+    """删除归属台账中登记且位于受管根目录内的文件；返回实际删除的路径。
+
+    **同时清理台账行**——这一点是必需的：卸载计划的生成条件是「台账非空」，
+    若卸载后不清台账，同一个插件就能被无限次重复生成卸载计划，
+    「已卸载」这个状态在系统里将无法表达。
+
+    越界路径（不在受管根目录内）**绝不删除**，但同样会清理其台账行；
+    越界路径会通过 ``skipped`` 返回，由调用方写入审计留痕。
+    """
     removed: list[str] = []
+    out_of_scope: list[str] = []
+    in_scope: list[str] = []
     for raw in owned_paths(conn, plugin_id):
         try:
             path = roots.assert_managed(Path(raw))
         except SecurityError:
+            out_of_scope.append(raw)
             continue  # 不在受管范围内 → 绝不删除
+        in_scope.append(raw)
         if path.exists() or path.is_symlink():
             _remove_managed(path)
             removed.append(str(path))
+    if in_scope or out_of_scope:
+        with transaction(conn):
+            conn.executemany(
+                "DELETE FROM file_ownership WHERE plugin_id = ? AND path = ?",
+                [(plugin_id, raw) for raw in in_scope + out_of_scope],
+            )
+    if skipped is not None:
+        skipped.extend(out_of_scope)
     return removed

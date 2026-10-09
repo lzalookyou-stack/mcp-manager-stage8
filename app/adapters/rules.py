@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from app.adapters.base import PluginAdapter, _text
 from app.models import EvidenceLevel, Plugin, PluginKind

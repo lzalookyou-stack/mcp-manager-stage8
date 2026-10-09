@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models import (
     Evidence,
@@ -39,7 +39,7 @@ def _days_since(moment: datetime | None, *, now: datetime) -> float | None:
     if moment is None:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     return (now - moment).total_seconds() / 86400.0
 
 
@@ -325,7 +325,7 @@ def score_metrics(
     now: datetime | None = None,
 ) -> ScoreBreakdown:
     """根据仓库指标与安全报告产出可解释评分。"""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
 
     maintenance, m_ev = _maintenance(metrics, now)
     quality, q_ev = _quality(metrics)

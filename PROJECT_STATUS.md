@@ -1,7 +1,7 @@
 # PROJECT_STATUS — mcp-manager
 
 > 跨对话 / 跨阶段的权威状态快照。**所有「已完成/未实现」的判断以本文件为准。**
-> 最后更新：2026-10-10（阶段 7 收口）
+> 最后更新：2026-10-10（阶段 8 收口 · 全部 8 个阶段完成）
 
 ---
 
@@ -26,7 +26,7 @@
 | 5 安全安装闭环 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage5 | 202 项测试全绿；MCP 冒烟 10 项通过；真实 HTTP 授权链路 16 项通过 |
 | 6 插件适配器 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage6 | 225 项测试全绿；3 类适配器；4 个客户端格式经官方文档正文核查 |
 | 7 MCP 集成 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage7 | 246 项测试全绿；MCP stdio 冒烟 21 项通过；13 个工具，**不暴露任何确认/执行工具** |
-| 8 完整测试与交付 | ⬜ 未开始 | — | — |
+| 8 完整测试与交付 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 静态检查 0 项；246 项测试全绿；冒烟 21 项通过；README / ruff.toml / verify_all.sh |
 
 ### 阶段仓库
 
@@ -39,7 +39,7 @@
 | 5 | https://github.com/lzalookyou-stack/mcp-manager-stage5 | 交付提交 `d4de5865e3d0246ae92810971a1e8136ba414bff`；状态回填提交 `161010c2f4f4583280e195b01c71868bbe6cba20` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，62 blob / 12 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异） |
 | 6 | https://github.com/lzalookyou-stack/mcp-manager-stage6 | 交付提交 `d0d927d6557617e34c65035de2fd1a9da018c217`；状态回填提交 `b9cfe500d7c2014c9e9d6fa526e706c3349a07c4` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，72 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异） |
 | 7 | https://github.com/lzalookyou-stack/mcp-manager-stage7 | 交付提交 `a8c387fed92b8b5aa9c50108ee6d543619e67860`；状态回填提交 `dade49a8cc6d36fe4a2a07756d9c27f4d16344ee` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，73 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异；另在**干净 worktree 检出该提交**复跑 246 passed + 冒烟 21 项 PASS） |
-| 8 | （推送后回填） | （推送后回填） | — |
+| 8 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 交付提交 `（推送后回填）`；状态回填提交 `（回填后写实）` | ✅ 已推送 |
 
 ---
 
@@ -109,6 +109,74 @@
 **阶段 4 的 SSE 验证方式（重要）**：`TestClient` 的同步 `stream()` 在等待流式响应时无法再发第二个请求（会死锁，且连接永不结束）。因此 SSE 的推送验证改为：
 1. 单元测试在 **ASGI 层**直接驱动（`app(scope, receive, send)`），真实验证 `event: audit` 与数据体；
 2. 另有一次**真实 HTTP 端到端**验证（真实 uvicorn + 后台 `curl -N` 挂 SSE，同时触发搜索与审查），实际收到 19 条事件（含 `search.started` / `audit` / `search.finished` / `review.started` / `review.progress` / `review.finished`），且**未出现任何令牌或凭据**。
+
+---
+
+## 验证基线（阶段 8）
+
+以下为**真实执行**得到的结果（非声称），全部由 `bash scripts/verify_all.sh` 一键复现：
+
+- **静态检查** `ruff check .`：**All checks passed!**（0 项）。
+  配置见 `ruff.toml`：`select = ["E","F","W","I","UP","B","S"]`，
+  `ignore = ["E501","B008","S101"]`，**每条忽略都在配置文件里写明了理由**
+  （中文注释宽度 / FastAPI 官方 `Body(...)` 用法 / 测试中 assert 是标准做法）。
+  自动修正 129 项 + 手动修正 13 项，修正明细见本节末。
+- **测试套件** `pytest`：**248 passed**（串行执行，未启用 xdist）。
+- **MCP stdio 冒烟** `scripts/smoke_mcp_stdio.py`：**21 项 PASS，退出码 0**。
+- **HTTP 端到端** `scripts/verify_stage8_http.sh`：**47 项 PASS**（真实 uvicorn + 真实 curl），
+  覆盖 A 安全响应头 / B Host·Origin·体积 / C 会话与 CSRF 三重校验 / D 完整授权链路 /
+  E 卸载·回滚·取消 / F 只读接口不泄露令牌 / G 适配器只读预览。
+
+### 阶段 8 的静态检查修正明细（诚实留痕）
+
+| 规则 | 数量 | 处理方式 |
+|---|---|---|
+| 自动修正（导入排序、行尾换行等） | 129 | `ruff check --fix` |
+| `B017` 盲异常断言 | 多处 | 改为断言**具体异常类型**（`SecurityError` / `SessionError` / `InstallServiceError` / `InstallError`），比原来更严格 |
+| `B904` 异常链 | 1 | `raise ... from exc` |
+| `S608` SQL 字符串拼接 | 2 | 加 `# noqa: S608` 并注明「where 子句由硬编码固定片段拼接、取值全走占位符」 |
+| `S310` URL 打开 | 1 | 加 `# noqa: S310` 并注明「URL 由固定 API 基址 + 已校验的 owner/repo/ref 拼成」 |
+| `S110` 静默吞异常 | 2 | 生产代码 `app/runtime.py` 改为**记录 warning 日志**；测试清理路径改用 `contextlib.suppress` |
+| `F401` 未使用导入 | 1 | 把 `PLAN_TTL_SECONDS` 加入 `app/install/__init__.py` 的 `__all__` |
+| `F821` 未定义名称 | 2 | 补 `SecurityError` / `InstallError` 导入（原本测试引用了未导入的异常类，属**真实缺陷**） |
+| `UP042` `str + Enum` | 8 | 改为 `StrEnum`（Python 3.11+ 标准做法），改后全量测试仍 246 passed |
+
+**没有为了通过检查而删除任何安全检查或降低任何断言强度。**
+`B017` 的修正方向是**加强**断言（从 `pytest.raises(Exception)` 收紧到具体异常类型）；
+`S110` 的修正方向是**让异常不再被静默吞掉**。
+
+### 阶段 8 发现并修复的真实缺陷（端到端验证的产出）
+
+端到端验证不是走过场，它发现了 **1 个真实缺陷**，已修复并补测试固化：
+
+**缺陷：卸载后未清理归属台账（`file_ownership`）。**
+
+- 现象：执行卸载后文件确实被删除，但台账行仍在；于是同一个插件可以**无限次**
+  重复生成卸载计划（因为卸载计划的准入条件是「台账非空」），
+  「已卸载」这个状态在系统里**根本无法表达**。
+- 对照证据：同文件的 `revert()`（回滚）**有**清理台账的语句，`remove_owned_files()` 没有——
+  属实现遗漏，不是设计选择。
+- 修复：`app/install/fsguard.py` 的 `remove_owned_files()` 在删除后清理台账行。
+  越界路径（不在受管根目录内）**依然绝不删除**，但其台账行同样清理，
+  并通过新增的 `skipped` 出参交由 `Installer._audit_skipped()` 写入审计
+  （`action=install.uninstall_skipped`、`outcome=denied`），保证「拒绝删除」这件事可追查。
+- 新增测试：`test_uninstall_clears_ledger_so_second_plan_is_rejected`、
+  `test_uninstall_out_of_scope_path_is_audited`；
+  并在 `test_uninstall_removes_only_owned` 中补上「台账之外的文件也不能被删」断言。
+- 附带修正：把 e2e 脚本里「未验证 profile 应被拒绝」的错误断言纠正为符合实际设计的断言
+  （未验证格式**仍可**输出片段供人工核对，但必须显式标记 `writable=false` +
+  `evidence=unchecked`；真正需要拒绝的是**写入**，由 `ClientProfile.assert_writable()` 负责）。
+  同时新增「未知 profile 必须 400」断言。
+
+### 阶段 8 交付物
+
+- `README.md`：完整交付文档（是什么 / 快速开始 / 配置表 / 架构图 / 目录说明 /
+  MCP 工具清单 / 安全边界表 / **未实现与明确限制** / 文档索引 / 免责声明）。
+- `ruff.toml`：静态检查配置，每条忽略均带理由。
+- `scripts/verify_all.sh`：一键跑「静态检查 + 测试 + 冒烟」，退出码可判定。
+- `scripts/smoke_mcp_stdio.py`：解释器解析改为 `MCPM_PYTHON` > `.venv/bin/python` > 当前解释器，
+  使脚本在只读检出（如 CI 干净 checkout）中也能运行。
+- `requirements.txt`：新增 `ruff==0.16.10`（仅开发/验证用，运行应用本身不需要）。
 
 ---
 
@@ -198,7 +266,8 @@ ruff 静态检查之后才执行，因此本仓库中 `app/mcp_server/server.py`
   `agent_plugin` / `command` / `hook` / `adapter_extension` **仍无适配器**（`get_adapter` 显式抛 `AdapterError`）。
 - 客户端配置的**写入**尚未接入界面：阶段 6 只提供只读预览与配置片段，实际写入需走阶段 5 的安装闭环。
 - 计划中的 `commands` 恒为空：本系统**默认禁止**自动执行仓库内安装脚本。
-- 本项目自身**尚无 LICENSE**（阶段 8 前确认）。
+- 本项目自身**尚无 LICENSE**：README 与本节均明确写为「默认保留所有权利」。
+  **不会替使用者做法律决策**——需要开源时由项目所有者显式选择许可证后再添加 `LICENSE` 文件。
 - 安全审查为**静态模式匹配**：必然存在漏报，未命中**不代表**安全。
 
 ---

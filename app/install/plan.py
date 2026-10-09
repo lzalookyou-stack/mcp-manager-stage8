@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -81,7 +81,7 @@ class InstallPlan(BaseModel):
     failure_handling: str = ""
     notes: list[str] = Field(default_factory=list)
 
-    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
     plan_digest: str = ""
 
@@ -108,17 +108,17 @@ class InstallPlan(BaseModel):
         )
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
-    def sealed(self) -> "InstallPlan":
+    def sealed(self) -> InstallPlan:
         """返回带 ``plan_digest`` 的副本（写入库 / 展示给用户时使用）。"""
         return self.model_copy(update={"plan_digest": self.compute_digest()})
 
     def is_expired(self, now: datetime | None = None) -> bool:
         if self.expires_at is None:
             return False
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         expires = self.expires_at
         if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
+            expires = expires.replace(tzinfo=UTC)
         return now >= expires
 
     def files_digest(self) -> str:
@@ -161,4 +161,4 @@ def binding_digest(binding: dict[str, Any]) -> str:
 
 
 def default_expiry(ttl_seconds: int = DEFAULT_PLAN_TTL_SECONDS) -> datetime:
-    return datetime.now(timezone.utc) + timedelta(seconds=max(60, int(ttl_seconds)))
+    return datetime.now(UTC) + timedelta(seconds=max(60, int(ttl_seconds)))

@@ -16,7 +16,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.db import transaction
 from app.install.plan import binding_digest
@@ -45,7 +45,7 @@ def _hash_token(token: str) -> str:
 def _parse_iso(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -58,14 +58,14 @@ def create_confirmation(
 ) -> tuple[str, ConfirmationRecord]:
     """生成确认令牌。返回 ``(明文令牌, 记录)``——明文**不会**再被读回。"""
     token = new_token(32)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = now.timestamp() + max(60, int(ttl_seconds))
     record = ConfirmationRecord(
         operation_id=operation_id,
         token_hash=_hash_token(token),
         binding=binding,
         binding_digest=binding_digest(binding),
-        expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+        expires_at=datetime.fromtimestamp(expires_at, tz=UTC).isoformat(),
         used_at=None,
         created_at=now.isoformat(),
     )
@@ -135,7 +135,7 @@ def verify_confirmation(
     if record.used_at is not None:
         raise ConfirmationError("该确认令牌已被使用")
 
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if now >= _parse_iso(record.expires_at):
         raise ConfirmationError("确认令牌已过期，请重新生成计划并重新确认")
 

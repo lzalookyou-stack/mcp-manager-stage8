@@ -30,9 +30,11 @@ import json
 import os
 import shutil
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.db import transaction
 from app.install.fsguard import (
@@ -50,6 +52,11 @@ from app.security import resolve_within
 
 # 计划有效期（秒）
 PLAN_TTL_SECONDS = 1800
+
+
+def _utcnow_iso() -> str:
+    """当前 UTC 时间的 ISO-8601 字符串（审计日志用）。"""
+    return datetime.now(UTC).isoformat()
 
 
 class InstallError(RuntimeError):
@@ -311,8 +318,40 @@ class Installer:
         return paths
 
     def uninstall(self, *, plugin_id: str) -> list[str]:
-        """卸载：只删除归属台账中登记且位于受管目录内的文件。"""
-        return remove_owned_files(self._conn, self._roots, plugin_id=plugin_id)
+        """卸载：只删除归属台账中登记且位于受管目录内的文件。
+
+        越界路径绝不删除，但会清理其台账行（否则「已卸载」状态无法表达）；
+        越界情况写入审计，便于事后追查。
+        """
+        skipped: list[str] = []
+        removed = remove_owned_files(
+            self._conn, self._roots, plugin_id=plugin_id, skipped=skipped
+        )
+        if skipped:
+            self._audit_skipped(plugin_id, skipped)
+        return removed
+
+    def _audit_skipped(self, plugin_id: str, skipped: list[str]) -> None:
+        """把「越界路径未删除但已清理台账」这一事实写入审计。"""
+        with transaction(self._conn):
+            self._conn.execute(
+                "INSERT INTO audit_log(ts, actor, action, target, outcome, detail)"
+                " VALUES(?,?,?,?,?,?)",
+                (
+                    _utcnow_iso(),
+                    "system",
+                    "install.uninstall_skipped",
+                    plugin_id,
+                    "denied",
+                    json.dumps(
+                        {
+                            "reason": "路径不在受管根目录内，已拒绝删除并清理台账",
+                            "paths": skipped,
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+            )
 
     # ------------------------------------------------------------------ #
     def run_planned_commands(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -10,7 +10,7 @@ from app.analysis.scoring import score_metrics
 from app.analysis.security_review import ScannedFile, review_files
 from app.models import EvidenceLevel, RepoMetrics, RiskLevel
 
-NOW = datetime(2026, 10, 9, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 9, tzinfo=UTC)
 
 
 def _good_metrics(**overrides) -> RepoMetrics:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models import (
     EvidenceLevel,
@@ -229,6 +229,6 @@ def review_files(
         vetoed=vetoed,
         coverage=coverage if scanned else "none",
         pinned_ref=pinned_ref,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         notes=final_notes,
     )

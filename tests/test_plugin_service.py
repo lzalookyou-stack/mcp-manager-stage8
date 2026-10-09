@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import InstallStatus, Plugin, PluginKind, RiskLevel
+from app.security import SecurityError
 from app.services import (
     PluginNotFound,
     PluginService,
@@ -107,7 +108,7 @@ def test_register_placeholder_is_pending_not_approved(service: PluginService):
 
 
 def test_register_placeholder_rejects_bad_slug(service: PluginService):
-    with pytest.raises(Exception):
+    with pytest.raises(SecurityError):
         service.register_placeholder(
             source="github:o/r",
             slug="../escape",

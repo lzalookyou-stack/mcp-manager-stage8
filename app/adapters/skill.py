@@ -10,9 +10,10 @@ Skill 的约定（文件型）：
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from app.adapters.base import AdapterError, ClientProfile, PluginAdapter, _text
+from app.adapters.base import PluginAdapter, _text
 from app.models import EvidenceLevel, Plugin, PluginKind
 
 SKILL_FILENAME = "skill.md"

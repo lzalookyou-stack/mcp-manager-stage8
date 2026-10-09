@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """阶段 1 调研工具：对候选 GitHub 仓库做真实、只读的元数据采集。
 
 设计原则：
@@ -50,7 +49,7 @@ def load_token() -> str | None:
         return tok.strip()
     path = os.path.expanduser("~/.git-credentials")
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 m = re.match(r"https://([^:]*):([^@]*)@github\.com", line.strip())
                 if m:

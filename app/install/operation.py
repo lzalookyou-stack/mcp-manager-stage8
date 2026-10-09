@@ -20,8 +20,8 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from app.db import transaction
@@ -30,7 +30,7 @@ from app.install.plan import InstallPlan
 VALID_ACTIONS = ("install", "rollback", "uninstall")
 
 
-class OperationStatus(str, Enum):
+class OperationStatus(StrEnum):
     PENDING = "pending"
     AWAITING_CONFIRMATION = "awaiting_confirmation"
     APPROVED = "approved"
@@ -49,7 +49,7 @@ class OperationError(RuntimeError):
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass(frozen=True)
@@ -169,8 +169,10 @@ class OperationStore:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         limit = max(1, min(int(limit), 500))
         params.append(limit)
+        # where 子句由硬编码的固定片段拼接而成，取值全部走占位符参数
         rows = self._conn.execute(
-            f"SELECT * FROM operations {where} ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM operations {where}"  # noqa: S608
+            " ORDER BY created_at DESC LIMIT ?",
             params,
         ).fetchall()
         return [self._row_to_operation(r) for r in rows]

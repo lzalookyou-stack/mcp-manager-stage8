@@ -225,8 +225,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if kind:
             try:
                 parsed_kind = PluginKind(kind)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"未知 kind：{kind}")
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"未知 kind：{kind}"
+                ) from exc
         items = rt.plugins.list(kind=parsed_kind, limit=limit, offset=offset)
         return {"count": len(items), "items": [dump_plugin(p) for p in items]}
 
@@ -528,7 +530,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                         event = await asyncio.wait_for(
                             sub.queue.get(), timeout=_SSE_HEARTBEAT_SECONDS
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         yield ": heartbeat\n\n"
                         continue
                     payload = json.dumps(event, ensure_ascii=False, default=str)

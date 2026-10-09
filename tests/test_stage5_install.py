@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from fastapi.testclient import TestClient
 from app.config import load_settings
 from app.install import (
     Installer,
+    InstallError,
     InstallService,
     InstallServiceError,
     ManagedRoots,
@@ -39,7 +41,7 @@ from app.install.plan import build_binding
 from app.models import Plugin, PluginKind
 from app.runtime import Runtime
 from app.security import SecurityError
-from app.session import SessionStore
+from app.session import SessionError, SessionStore
 from app.web import create_app
 
 ALLOWED_HOST = "testserver"
@@ -99,13 +101,13 @@ def test_session_roundtrip_and_rejections():
     token, csrf = store.create()
     store.verify(token, csrf)  # 不应抛异常
 
-    with pytest.raises(Exception):
+    with pytest.raises(SessionError):
         store.verify(token, "wrong-csrf")
-    with pytest.raises(Exception):
+    with pytest.raises(SessionError):
         store.verify("unknown-session", csrf)
-    with pytest.raises(Exception):
+    with pytest.raises(SessionError):
         store.verify(None, csrf)
-    with pytest.raises(Exception):
+    with pytest.raises(SessionError):
         store.verify(token, None)
 
 
@@ -115,7 +117,7 @@ def test_session_expires_after_ttl():
     # 把 last_seen 拨回过去，模拟空闲超时
     for session in store._sessions.values():
         session.last_seen = time.time() - 10
-    with pytest.raises(Exception):
+    with pytest.raises(SessionError):
         store.verify(token, csrf)
     assert store.count() == 0
 
@@ -233,7 +235,7 @@ def test_confirmation_rejects_expired(runtime):
     token, _ = create_confirmation(
         runtime.conn, operation_id="op-2", binding=build_binding("op-2", plan), ttl_seconds=60
     )
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     with pytest.raises(ConfirmationError):
         verify_confirmation(
@@ -241,7 +243,7 @@ def test_confirmation_rejects_expired(runtime):
             operation_id="op-2",
             token=token,
             current_binding=build_binding("op-2", plan),
-            now=datetime.now(timezone.utc) + timedelta(hours=1),
+            now=datetime.now(UTC) + timedelta(hours=1),
         )
 
 
@@ -270,7 +272,7 @@ def test_install_writes_files_and_records_ownership(installs, service, roots):
 def test_execute_requires_confirm_token(installs, service):
     plugin = make_plugin(service)
     op = installs.create_plan(plugin)
-    with pytest.raises(Exception):
+    with pytest.raises(InstallServiceError):
         installs.execute(op.id, token="bogus")
     # 状态仍为 awaiting_confirmation，未被误推进
     assert installs.get(op.id).status == OperationStatus.AWAITING_CONFIRMATION.value
@@ -313,6 +315,54 @@ def test_uninstall_removes_only_owned(installs, service, roots, tmp_path):
     assert done.status == OperationStatus.SUCCEEDED.value
     assert danger.exists(), "越界路径绝不能被删除"
     assert not (target / "index.js").exists()
+    # 用户自己放进受管目录、未经本系统登记的文件也不能被删
+    assert outsider.exists(), "台账之外的文件绝不能被删除"
+
+
+def test_uninstall_clears_ledger_so_second_plan_is_rejected(installs, service, roots):
+    """卸载必须清空归属台账：否则「已卸载」状态无法表达，可无限重复生成卸载计划。"""
+    from app.install import owned_paths
+
+    plugin = make_plugin(service)
+    op = installs.create_plan(plugin)
+    installs.execute(op.id, token=installs.confirm(op.id))
+    assert owned_paths(installs._conn, plugin.id), "安装后台账必须有记录"
+
+    plan = installs.create_plan(plugin, action="uninstall")
+    installs.execute(plan.id, token=installs.confirm(plan.id))
+
+    assert owned_paths(installs._conn, plugin.id) == [], "卸载后台账必须被清空"
+    with pytest.raises(InstallServiceError):
+        installs.create_plan(plugin, action="uninstall")
+
+
+def test_uninstall_out_of_scope_path_is_audited(installs, service, roots, tmp_path):
+    """越界路径不删除，但必须清理台账并写入审计留痕。"""
+    from app.install import owned_paths, record_ownership
+
+    plugin = make_plugin(service)
+    op = installs.create_plan(plugin)
+    installs.execute(op.id, token=installs.confirm(op.id))
+
+    danger = tmp_path / "outside.txt"
+    danger.write_text("不要删我\n", encoding="utf-8")
+    record_ownership(
+        installs._conn,
+        plugin_id=plugin.id,
+        operation_id="fake-op",
+        files=[(str(danger), "create", None)],
+    )
+
+    plan = installs.create_plan(plugin, action="uninstall")
+    installs.execute(plan.id, token=installs.confirm(plan.id))
+
+    assert danger.exists(), "越界路径绝不能被删除"
+    assert owned_paths(installs._conn, plugin.id) == [], "越界行也必须清理"
+    rows = installs._conn.execute(
+        "SELECT action, outcome FROM audit_log WHERE action = 'install.uninstall_skipped'"
+    ).fetchall()
+    assert rows, "越界跳过必须写入审计"
+    assert rows[0]["outcome"] == "denied"
 
 
 def test_rollback_restores_previous_content(installs, service, roots):
@@ -350,8 +400,7 @@ def test_install_failure_marks_failed_and_restores(runtime, roots, service):
     plugin = make_plugin(service)
     op = svc.create_plan(plugin)
     token = svc.confirm(op.id)
-
-    with pytest.raises(Exception):
+    with pytest.raises(InstallError):
         svc.execute(op.id, token=token)
 
     after = svc.get(op.id)

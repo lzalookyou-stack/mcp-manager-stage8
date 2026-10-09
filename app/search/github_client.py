@@ -14,12 +14,11 @@ from __future__ import annotations
 
 import base64
 import json
-import socket
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 API_ROOT = "https://api.github.com"
@@ -83,7 +82,7 @@ class RepoInfo:
     topics: list[str] = field(default_factory=list)
     size_kb: int = 0
     missing_fields: list[str] = field(default_factory=list)
-    fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -163,7 +162,8 @@ class GitHubClient:
         return headers
 
     def _http_get(self, url: str, headers: dict[str, str]) -> tuple[int, Any, bytes]:
-        req = urllib.request.Request(url, headers=headers, method="GET")
+        # URL 由固定 API 基址 + 已校验的 owner/repo/ref 拼成，不接受任意输入
+        req = urllib.request.Request(url, headers=headers, method="GET")  # noqa: S310
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # noqa: S310
                 return resp.status, resp.headers, resp.read()
@@ -174,7 +174,7 @@ class GitHubClient:
             except Exception:  # pragma: no cover - 读取失败不致命
                 body = b""
             return exc.code, exc.headers, body
-        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise GitHubError(
                 f"网络请求失败：{type(exc).__name__}", kind="network", url=url
             ) from exc

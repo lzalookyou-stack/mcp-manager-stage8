@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # --------------------------------------------------------------------------- #
 
 
-class PluginKind(str, Enum):
+class PluginKind(StrEnum):
     MCP_SERVER = "mcp_server"
     AGENT_PLUGIN = "agent_plugin"
     SKILL = "skill"
@@ -35,7 +35,7 @@ class PluginKind(str, Enum):
     ADAPTER_EXTENSION = "adapter_extension"
 
 
-class EvidenceLevel(str, Enum):
+class EvidenceLevel(StrEnum):
     """结论的证据等级——贯穿全项目的硬性纪律。"""
 
     VERIFIED = "verified"          # 【已验证事实】：有可复现的实测证据
@@ -44,7 +44,7 @@ class EvidenceLevel(str, Enum):
     UNDETERMINED = "undetermined"  # 【无法确定结论】：当前手段无法判定
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     NONE = "none"
     LOW = "low"
     MEDIUM = "medium"
@@ -52,14 +52,14 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"          # 具备"一票否决"能力
 
 
-class ReviewStatus(str, Enum):
+class ReviewStatus(StrEnum):
     PENDING = "pending"
     REVIEWING = "reviewing"
     APPROVED = "approved"
     REJECTED = "rejected"
 
 
-class InstallStatus(str, Enum):
+class InstallStatus(StrEnum):
     NOT_INSTALLED = "not_installed"
     PENDING = "pending"
     AWAITING_CONFIRMATION = "awaiting_confirmation"
@@ -72,7 +72,7 @@ class InstallStatus(str, Enum):
     INTERRUPTED = "interrupted"
 
 
-class LicenseSource(str, Enum):
+class LicenseSource(StrEnum):
     """许可证信息的取得方式——决定其可信度。"""
 
     API_FIELD = "api_field"        # 来自托管平台 API 的 license 字段
@@ -173,12 +173,12 @@ def derive_plugin_id(source: str, slug: str) -> str:
     norm_slug = _SLUG_SAFE.sub("-", slug.strip().lower()).strip("-")
     if not norm_source or not norm_slug:
         raise ValueError("source 与 slug 均不能为空")
-    digest = hashlib.sha256(f"{norm_source}::{norm_slug}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{norm_source}::{norm_slug}".encode()).hexdigest()
     return f"{norm_source}:{norm_slug}:{digest[:12]}"
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Plugin(BaseModel):
@@ -235,7 +235,7 @@ class Plugin(BaseModel):
     missing_fields: list[str] = Field(
         default_factory=list, description="获取失败的字段名，显式暴露数据缺口"
     )
-    security_report: "SecurityReport | None" = Field(
+    security_report: SecurityReport | None = Field(
         default=None, description="阶段 3 安全审查结果；None 表示尚未审查"
     )
 
@@ -274,7 +274,7 @@ class Plugin(BaseModel):
         name: str,
         kind: PluginKind,
         **kwargs: Any,
-    ) -> "Plugin":
+    ) -> Plugin:
         return cls(
             id=derive_plugin_id(source, slug),
             source=source,
@@ -290,7 +290,7 @@ class Plugin(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
-class FindingCategory(str, Enum):
+class FindingCategory(StrEnum):
     """安全审查发现项的分类（对应阶段 3 需求清单）。"""
 
     SHELL_EXECUTION = "shell_execution"                # shell / PowerShell 执行

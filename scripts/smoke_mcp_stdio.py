@@ -18,7 +18,24 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+
+
+def _resolve_python() -> Path:
+    """解析用于启动 MCP 子进程的解释器。
+
+    优先级：``MCPM_PYTHON`` 环境变量 > 项目内 ``.venv/bin/python`` > 当前解释器。
+    这样脚本既能在本项目里直接跑，也能在只读检出（例如 CI 的干净 checkout）中运行。
+    """
+    override = os.environ.get("MCPM_PYTHON")
+    if override:
+        return Path(override)
+    candidate = PROJECT_ROOT / ".venv" / "bin" / "python"
+    if candidate.exists():
+        return candidate
+    return Path(sys.executable)
+
+
+PYTHON = _resolve_python()
 
 
 class StdioClient:
@@ -73,7 +90,8 @@ class StdioClient:
 
 def main() -> int:
     if not PYTHON.exists():
-        print(f"FAIL: 未找到虚拟环境解释器 {PYTHON}")
+        print(f"FAIL: 未找到可用的 Python 解释器 {PYTHON}")
+        print("提示：可用 MCPM_PYTHON=/path/to/python 显式指定")
         return 1
 
     env = dict(os.environ)

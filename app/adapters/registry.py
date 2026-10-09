@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from app.adapters.base import AdapterError, PluginAdapter
 from app.adapters.mcp_server import McpServerAdapter

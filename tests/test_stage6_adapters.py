@@ -44,10 +44,10 @@ ORIGIN = f"http://{ALLOWED_HOST}"
 SKILL_FILES = {
     "SKILL.md": (
         "---\nname: demo-skill\ndescription: 一个演示 Skill\n---\n\n# 用法\n..."
-    ).encode("utf-8"),
+    ).encode(),
     "helper.py": b"print('hi')\n",
 }
-RULES_FILES = {"AGENTS.md": "# 规则\n\n始终使用简体中文。\n".encode("utf-8")}
+RULES_FILES = {"AGENTS.md": "# 规则\n\n始终使用简体中文。\n".encode()}
 MCP_FILES = {
     "server.py": b"from mcp.server.mcpserver import MCPServer\nserver = MCPServer('x')\n",
     "requirements.txt": b"mcp==2.3.0\n",
@@ -88,7 +88,7 @@ def test_skill_detected_and_valid():
 
 def test_skill_missing_frontmatter_is_a_problem():
     adapter = SkillAdapter()
-    files = {"SKILL.md": "# 没有 frontmatter\n".encode("utf-8")}
+    files = {"SKILL.md": "# 没有 frontmatter\n".encode()}
     problems, _ = adapter.validate(
         Plugin.new(
             source="github:acme/x", slug="x", name="x", kind=PluginKind.SKILL

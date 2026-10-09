@@ -30,13 +30,7 @@ from app.install.fsguard import (
     remove_owned_files,
     restore_snapshot,
 )
-from app.install.installer import ApplyResult, InstallError, Installer
-from app.install.service import (
-    PLAN_TTL_SECONDS,
-    InstallService,
-    InstallServiceError,
-    InstallUnavailable,
-)
+from app.install.installer import ApplyResult, Installer, InstallError
 from app.install.operation import (
     Operation,
     OperationError,
@@ -58,6 +52,12 @@ from app.install.provider import (
     MemoryFileProvider,
     ProviderError,
     RemoteEntry,
+)
+from app.install.service import (
+    PLAN_TTL_SECONDS,
+    InstallService,
+    InstallServiceError,
+    InstallUnavailable,
 )
 
 __all__ = [
@@ -99,4 +99,5 @@ __all__ = [
     "InstallService",
     "InstallServiceError",
     "InstallUnavailable",
+    "PLAN_TTL_SECONDS",
 ]

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.analysis.compare import compare_plugins
@@ -81,7 +81,7 @@ class AuditRecord:
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class PluginService:
@@ -92,7 +92,7 @@ class PluginService:
         conn: sqlite3.Connection,
         *,
         github: GitHubClient | None = None,
-        events: "EventBus | None" = None,
+        events: EventBus | None = None,
     ) -> None:
         self._conn = conn
         self._github = github
@@ -253,8 +253,9 @@ class PluginService:
         offset = max(0, int(offset))
         params.extend([limit, offset])
 
+        # where 子句由硬编码的固定片段拼接而成，取值全部走占位符参数
         rows = self._conn.execute(
-            f"SELECT data FROM plugins {where}"
+            f"SELECT data FROM plugins {where}"  # noqa: S608
             " ORDER BY score_total DESC, name ASC LIMIT ? OFFSET ?",
             params,
         ).fetchall()
@@ -507,7 +508,7 @@ class PluginService:
                 "pinned_ref": pinned_ref,
                 "score": score,
                 "stars": metrics.stars,
-                "fetched_at": datetime.now(timezone.utc),
+                "fetched_at": datetime.now(UTC),
                 "missing_fields": sorted(set(plugin.missing_fields) | set(missing)),
                 "metadata": metadata,
             }

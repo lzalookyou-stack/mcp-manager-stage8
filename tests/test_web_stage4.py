@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 
 import pytest
@@ -292,10 +293,9 @@ def test_sse_stream_delivers_audit_event(settings, monkeypatch):
             await asyncio.wait_for(delivered.wait(), timeout=5)
         finally:
             task.cancel()
-            try:
+            # 清理期取消任务：CancelledError 属预期路径，其余异常也不应掩盖已有断言结果
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - 清理期忽略
-                pass
         return chunks
 
     chunks = asyncio.run(scenario())

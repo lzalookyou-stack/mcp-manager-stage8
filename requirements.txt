@@ -20,3 +20,6 @@ pytest==9.1.1
 pytest-asyncio==1.3.0
 # FastAPI TestClient 依赖 httpx；本环境由 httpx2 提供 httpx 模块
 httpx2==2.13.1
+
+# 阶段 8：静态检查（ruff）。仅开发/验证用，运行应用本身不需要。
+ruff==0.16.10

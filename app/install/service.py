@@ -14,7 +14,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.install.confirmation import (
     confirmation_status,
@@ -22,10 +23,9 @@ from app.install.confirmation import (
     verify_confirmation,
 )
 from app.install.fsguard import owned_paths
-from app.install.installer import ApplyResult, InstallError, Installer
+from app.install.installer import ApplyResult, Installer
 from app.install.operation import (
     Operation,
-    OperationError,
     OperationStatus,
     OperationStore,
 )

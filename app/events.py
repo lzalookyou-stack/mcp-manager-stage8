@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # 单个订阅者的队列上限：慢消费者只会丢事件，不会被无限缓冲拖垮内存。
@@ -102,7 +102,7 @@ class EventBus:
             self._published += 1
             event = {
                 "seq": self._seq,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "type": str(event_type),
                 "data": data,
             }
