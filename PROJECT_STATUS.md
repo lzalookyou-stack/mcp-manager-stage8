@@ -26,7 +26,7 @@
 | 5 安全安装闭环 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage5 | 202 项测试全绿；MCP 冒烟 10 项通过；真实 HTTP 授权链路 16 项通过 |
 | 6 插件适配器 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage6 | 225 项测试全绿；3 类适配器；4 个客户端格式经官方文档正文核查 |
 | 7 MCP 集成 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage7 | 246 项测试全绿；MCP stdio 冒烟 21 项通过；13 个工具，**不暴露任何确认/执行工具** |
-| 8 完整测试与交付 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 静态检查 0 项；246 项测试全绿；冒烟 21 项通过；README / ruff.toml / verify_all.sh |
+| 8 完整测试与交付 | ✅ 已完成 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 静态检查 0 项；**252 项测试全绿**；冒烟 21 项通过；HTTP 端到端 47 项通过；README / ruff.toml / verify_all.sh |
 
 ### 阶段仓库
 
@@ -39,7 +39,7 @@
 | 5 | https://github.com/lzalookyou-stack/mcp-manager-stage5 | 交付提交 `d4de5865e3d0246ae92810971a1e8136ba414bff`；状态回填提交 `161010c2f4f4583280e195b01c71868bbe6cba20` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，62 blob / 12 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异） |
 | 6 | https://github.com/lzalookyou-stack/mcp-manager-stage6 | 交付提交 `d0d927d6557617e34c65035de2fd1a9da018c217`；状态回填提交 `b9cfe500d7c2014c9e9d6fa526e706c3349a07c4` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，72 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异） |
 | 7 | https://github.com/lzalookyou-stack/mcp-manager-stage7 | 交付提交 `a8c387fed92b8b5aa9c50108ee6d543619e67860`；状态回填提交 `dade49a8cc6d36fe4a2a07756d9c27f4d16344ee` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，73 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异；另在**干净 worktree 检出该提交**复跑 246 passed + 冒烟 21 项 PASS） |
-| 8 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 交付提交 `1df69550a5ec33a6e249bd19d0a6daeb0bc179b8`；状态回填提交 `85a95096fa009d7c175f9aae2cebffb4c82e2397` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，79 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异；另在**干净 worktree 检出该提交**复跑 248 passed + 冒烟全通过） |
+| 8 | https://github.com/lzalookyou-stack/mcp-manager-stage8 | 交付提交 `1df69550a5ec33a6e249bd19d0a6daeb0bc179b8`；状态回填提交 `85a95096fa009d7c175f9aae2cebffb4c82e2397` | ✅ 已推送（远端 `refs/heads/main` 已回读核对 = 本地 HEAD，79 blob / 13 tree，`truncated: false`，本地跟踪文件与远端文件树逐一比对无差异；另在**干净 worktree 检出该提交**复跑 248 passed + 冒烟全通过；此后修复测试隔离缺陷并新增回归测试，最终为 252 passed） |
 
 ---
 
@@ -121,7 +121,7 @@
   `ignore = ["E501","B008","S101"]`，**每条忽略都在配置文件里写明了理由**
   （中文注释宽度 / FastAPI 官方 `Body(...)` 用法 / 测试中 assert 是标准做法）。
   自动修正 129 项 + 手动修正 13 项，修正明细见本节末。
-- **测试套件** `pytest`：**248 passed**（串行执行，未启用 xdist）。
+- **测试套件** `pytest`：**252 passed**（串行执行，未启用 xdist）。
 - **MCP stdio 冒烟** `scripts/smoke_mcp_stdio.py`：**21 项 PASS，退出码 0**。
 - **HTTP 端到端** `scripts/verify_stage8_http.sh`：**47 项 PASS**（真实 uvicorn + 真实 curl），
   覆盖 A 安全响应头 / B Host·Origin·体积 / C 会话与 CSRF 三重校验 / D 完整授权链路 /
@@ -167,6 +167,31 @@
   （未验证格式**仍可**输出片段供人工核对，但必须显式标记 `writable=false` +
   `evidence=unchecked`；真正需要拒绝的是**写入**，由 `ClientProfile.assert_writable()` 负责）。
   同时新增「未知 profile 必须 400」断言。
+
+**缺陷 2：测试结果依赖开发机环境变量（测试隔离失效）。**
+
+- 现象：把 `MCPM_GITHUB_TOKEN` 导出到 shell 后跑 `pytest`，**3 个用例失败**：
+  `test_search_without_github_client_fails_loudly`、`test_search_without_client_raises`、
+  `test_search_projects_fails_loudly_without_github`。清除该变量后全部通过。
+- 根因：`tests/conftest.py` 的 `runtime` 夹具直接调 `Runtime.create(settings)`，
+  而后者会读 `MCPM_GITHUB_TOKEN` / `GITHUB_TOKEN` 并自动装配 GitHub 客户端。
+  那三个用例的**前提**是「没有 GitHub 客户端」，前提被环境破坏后即失败。
+- 为什么必须修：这使测试结果**取决于开发机/CI 是否碰巧配了令牌**，
+  与本项目「不得伪造测试结果」的纪律直接冲突。
+- 修复：`tests/conftest.py` 新增 `autouse` 夹具 `_isolate_env`，
+  对每个测试 `monkeypatch.delenv` 掉两个令牌变量；`runtime` 夹具加断言
+  `rt.plugins._github is None`，防止将来夹具被改回时静默退化。
+  需要 GitHub 客户端的测试仍可**显式**通过 `github=` 参数注入。
+- 新增回归测试 `tests/test_env_isolation.py`（4 项），其中关键一项用
+  `subprocess` 起一个**真实带污染环境变量**的 pytest 子进程跑那三个用例，
+  断言退出码为 0 且输出 `3 passed`——这是真实执行，不是自证。
+- 验证：在 `MCPM_GITHUB_TOKEN=polluted_env_token` 下 **252 passed**；
+  清除后同样 **252 passed**。两种环境结果一致。
+
+**流程教训（诚实留痕）**：这个缺陷最初是我用
+`pytest ... | tail -3 && git commit ...` 这种写法时暴露的——
+管道让 `tail` 的退出码覆盖了 pytest 的退出码，导致**测试失败但提交仍然成功**。
+`scripts/verify_all.sh` 已用 `PIPESTATUS` 正确处理，手动跑时也应用同样方式。
 
 ### 阶段 8 交付物
 

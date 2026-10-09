@@ -84,7 +84,7 @@ bash scripts/verify_all.sh
 
 ```bash
 .venv/bin/ruff check .                    # 静态检查
-.venv/bin/python -m pytest                # 测试套件（246 项）
+.venv/bin/python -m pytest                # 测试套件（252 项）
 .venv/bin/python scripts/smoke_mcp_stdio.py   # 冒烟（21 项，真实子进程）
 ```
 

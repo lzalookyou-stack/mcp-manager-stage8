@@ -14,6 +14,22 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.config import load_settings  # noqa: E402
 from app.runtime import Runtime  # noqa: E402
 
+#: 会让 ``Runtime.create`` 自动装配 GitHub 客户端的环境变量。
+#: 测试必须显式屏蔽它们，否则「未配置客户端时应显式失败」这类用例
+#: 会随开发机 / CI 是否碰巧配了令牌而漂移——那样的测试结果是不可信的。
+GITHUB_ENV_VARS = ("MCPM_GITHUB_TOKEN", "GITHUB_TOKEN")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch):
+    """全局兜底：任何测试都不得依赖进程环境里的 GitHub 令牌。
+
+    测试若要验证「有令牌」的行为，必须**显式**通过 ``github=`` 参数注入，
+    不能靠环境变量碰运气。
+    """
+    for name in GITHUB_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture()
 def settings(tmp_path: Path):
@@ -29,6 +45,9 @@ def settings(tmp_path: Path):
 @pytest.fixture()
 def runtime(settings):
     rt = Runtime.create(settings)
+    assert rt.plugins._github is None, (
+        "测试环境必须没有 GitHub 客户端；若需要，请显式注入 github= 参数"
+    )
     yield rt
     rt.close()
 
