@@ -268,6 +268,14 @@ ruff 静态检查之后才执行，因此本仓库中 `app/mcp_server/server.py`
 - 计划中的 `commands` 恒为空：本系统**默认禁止**自动执行仓库内安装脚本。
 - 本项目自身**尚无 LICENSE**：README 与本节均明确写为「默认保留所有权利」。
   **不会替使用者做法律决策**——需要开源时由项目所有者显式选择许可证后再添加 `LICENSE` 文件。
+- **无法检测本机已注册 / 已安装的第三方 MCP Server**：`list_installed` 只返回
+  **由本系统自己安装成功**的条目（`install_status = succeeded` 的库内记录），
+  它**不会读取**任何客户端配置文件，也不会扫描本机已注册的 MCP 服务。
+  具体地说，以下路径**从未被读取**：`claude_desktop_config.json`、`.vscode/mcp.json`、
+  `.mcp.json`、`$COPILOT_HOME/mcp-config.json`、`.cursor/mcp.json`。
+  `ClientProfile.config_path_hint` 只是**展示用的路径提示字符串**，不是可执行的读取逻辑。
+  （本机实测：全新数据目录下 `list_installed` 返回 `[]`、`stats.total = 0`，
+  即使机器上已存在其他 MCP 客户端配置也返回空。）
 - 安全审查为**静态模式匹配**：必然存在漏报，未命中**不代表**安全。
 
 ---

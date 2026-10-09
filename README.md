@@ -236,6 +236,10 @@ Agent 侧行为约束（均有测试固化）：
   未配置令牌时搜索能力直接不可用，而不是降级成匿名请求。
 - **agentbridge 的 scanner 实现与检出率**：未检查。
 - **MCP Registry API 的破坏性变更时间表**：无法确定。
+- **不检测本机已注册的 MCP Server**。`list_installed` 只列出**由本系统安装成功**的
+  条目，**不读取**任何客户端配置文件（`claude_desktop_config.json` / `.vscode/mcp.json` /
+  `.mcp.json` / `$COPILOT_HOME/mcp-config.json` / `.cursor/mcp.json` 均未被读取）。
+  想知道「这台机器上已注册了哪些 MCP Server」，本工具**给不出答案**。
 - **本项目自身尚未添加许可证文件**，因此默认保留所有权利。
   如需开源，请由项目所有者显式选择许可证后再添加 `LICENSE`。
   （本工具不会替使用者做法律决策。）
