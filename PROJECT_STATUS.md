@@ -205,6 +205,66 @@
 
 ---
 
+### 阶段 8 后续增补（MCP 注册 · 可视化写操作 · 前端验证）
+
+阶段 8 收口之后，为「真正可用」补齐了三件事。
+
+**1. 补齐前端写操作界面（修复了一个真实缺口）。**
+
+- 现象：`web/` 停留在阶段 4 的**只读**界面——`grep 'install/plan|confirm|execute' web/`
+  返回**空**，页面上根本没有安装 / 卸载 / 回滚入口，文案还写着「阶段 4」「阶段 5 引入」。
+  而后端从阶段 5 起就已完整实现这些写端点（共 24 个端点）。
+  也就是说：**可视化管理此前只能看、不能操作。**
+- 修复：`web/index.html` 增加「操作计划」面板并修正全部过时文案；
+  `web/assets/app.js` 新增 `ensureSession` / `postJSON` / `requestPlan` /
+  `confirmOnly` / `confirmAndExecute` / `executeCurrent` / `cancelCurrent`，
+  在「发现」与「已安装」两处挂上真实按钮；`web/assets/style.css` 补充面板样式。
+- 安全设计：CSRF 令牌只存**内存变量**（不写 `localStorage` / `sessionStorage`）；
+  确认令牌仅在使用时短暂持有；计划面板逐条展示文件变更 / 命令 / 权限 / 审查摘要，
+  供人工核对后再确认。
+
+**2. 新增前端链路验证（真实执行，不是复刻）。**
+
+`scripts/verify_frontend.sh` + `scripts/verify_frontend.js`：
+起一个独立实例（内存文件来源 + 独立数据目录 + 独立端口），
+用 Node 的 `vm` **真实加载 `web/assets/app.js`**，配最小 DOM stub 驱动
+「会话 → 计划 → 确认 → 执行」，断言最终状态为 `succeeded`。**10 项全部通过。**
+
+> 为什么不复刻逻辑：复刻出来的代码只能证明「我以为的前端是对的」；
+> 加载真实文件才能发现前端与后端契约之间的真实偏差。
+
+**3. MCP 注册与可视化启动脚本。**
+
+- `scripts/mcp_entry.sh`：stdio 入口（解释器优先级 `MCPM_PYTHON` > 项目 `.venv` > `python3`）。
+- `scripts/start_web_console.sh`：可视化管理控制台（`start` / `stop` / `status` / `fg`）。
+- `scripts/install_mcp_plugin.sh`：注册到 Operit 的 `mcp_config.json`。
+  采用与 `memory-network` 一致的**转发脚本**约定——Linux 侧
+  `~/mcp_plugins/mcp_manager/mcp_entry.sh` 只做转发，真实代码始终只有一份。
+  写入前自动备份、写入后自校验 JSON、只增改本插件、不动其他条目。
+  `autoApprove` **只含 11 个只读工具**，`request_install` / `request_operation` 不在其中。
+  令牌默认**不写入**（该文件位于共享存储且为明文），需 `--with-token` 显式开启。
+
+**验证（真实执行）**：
+
+- 转发链路实测：`cd ~/mcp_plugins/mcp_manager && /bin/bash mcp_entry.sh`
+  → `initialize` 返回 `mcp-manager 0.2.0`，`tools/list` 返回 **13 个工具**，
+  stderr **为空**（stdio 干净），且不含任何 `confirm` / `execute` 工具。
+- 控制台实测：`GET /` → 200；`/api/health` → `loopback_only: true`；
+  安全响应头齐全（CSP 不含 `unsafe-inline`）。
+- `bash scripts/verify_all.sh` → 四步全绿，退出码 0。
+- `bash scripts/verify_frontend.sh` → 10 项通过，退出码 0。
+
+**流程教训（诚实留痕）**：验证过程中我用了一条**内联多行命令**
+（`export MCPM_DATA_DIR=/tmp/... && ...`），其中 `export` 污染了**持久 shell 会话**，
+导致随后启动的正式控制台连到了测试数据库（表现为 `/api/health` 报 `plugins: 1`，
+而正式库实际为空）。根因是「在共享的持久会话里 `export` 测试环境变量」。
+正确做法：测试环境变量只在**脚本内部** `export`（子进程天然隔离），
+或用 `env VAR=... cmd` 前缀，不要 `export` 到交互会话。
+排查方法：先比对两个数据目录的实际内容，再回溯是谁设置的变量——
+本次靠 `ls -la /tmp/mcpm_fe_test/ var/` 与两库直查定位，**未凭猜测下结论**。
+
+---
+
 ## 验证基线（阶段 7）
 
 以下为**真实执行**得到的结果（非声称）：

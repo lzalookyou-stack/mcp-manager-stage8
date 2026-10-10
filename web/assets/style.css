@@ -119,6 +119,19 @@ button {
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
 button.mini { padding: .2rem .5rem; font-size: .78rem; margin-right: .25rem; }
+button.primary { font-weight: 600; padding: .35rem .85rem; }
+
+/* ---- 操作计划面板（写操作：计划 → 确认 → 执行） ---- */
+#operation-panel {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: .8rem 1rem;
+  margin-top: .6rem;
+}
+#operation-panel h3 { margin-top: 0; }
+#operation-panel h4 { margin: 1rem 0 .3rem; font-size: .95rem; }
+#operation-panel .actions { border-top: 1px solid var(--border); padding-top: .7rem; }
 
 .note { color: var(--muted); font-size: .85rem; }
 .note-line { display: block; color: var(--muted); font-size: .78rem; }

@@ -10,7 +10,7 @@
 <body>
   <header>
     <h1>mcp-manager</h1>
-    <p class="subtitle">本地优先的 MCP / Agent 插件管理器 · 阶段 4 控制台（只读交互）</p>
+    <p class="subtitle">本地优先的 MCP / Agent 插件管理器 · 控制台（发现 · 安装 · 卸载 · 回滚）</p>
     <p id="health" class="health">正在检测服务状态…</p>
     <p id="sse-status" class="health">实时事件：未连接</p>
   </header>
@@ -30,14 +30,14 @@
         <dt>条目总数</dt><dd id="stat-total">—</dd>
         <dt>按类型</dt><dd id="stat-kind">—</dd>
         <dt>按安装状态</dt><dd id="stat-install">—</dd>
-        <dt>待确认操作</dt><dd id="stat-pending">0（阶段 5 引入）</dd>
+        <dt>待确认操作</dt><dd id="stat-pending">—</dd>
         <dt>失败任务</dt><dd id="stat-failed">—</dd>
         <dt>最近变更</dt><dd id="stat-recent">—</dd>
       </dl>
       <h2>插件列表</h2>
       <p class="hint">
-        本阶段为只读交互：搜索、检查、审查、对比均为真实后端逻辑，
-        <strong>安装 / 卸载 / 回滚将在阶段 5 引入</strong>，且必须由你在此页面明确确认。
+        搜索、检查、审查、对比均为真实后端逻辑。<strong>安装 / 卸载 / 回滚必须由你在此页面明确确认后才会执行</strong>：
+        先生成计划 → 核对计划内容 → 确认 → 执行。Agent 侧没有任何确认或执行工具，也不会收到确认令牌。
       </p>
       <table id="plugin-table">
         <thead>
@@ -51,6 +51,9 @@
 
       <h2>审计日志（最近 20 条）</h2>
       <ul id="audit-list" class="audit"></ul>
+
+      <h2 id="operation-title" hidden>操作计划（请核对后确认）</h2>
+      <div id="operation-panel" class="detail" hidden></div>
     </section>
 
     <!-- ================= 发现 ================= -->
@@ -111,8 +114,8 @@
     <section class="panel" id="panel-installed" hidden>
       <h2>已安装</h2>
       <p class="hint">
-        安装状态、版本、位置、配置、依赖与可回滚版本将在阶段 5 落地。
-        当前所有条目均为<strong>未安装</strong>，此处按钮为占位且不可用。
+        <strong>卸载</strong>只删除本系统登记并拥有的文件（越界路径绝不删除）；
+        <strong>回滚</strong>把最近一次成功安装恢复到安装前状态。两者都会先生成计划，由你确认后才执行。
       </p>
       <table id="installed-table">
         <thead>
@@ -128,7 +131,7 @@
       <h2>任务与历史</h2>
       <p class="hint">
         操作历史来自审计日志；下方「实时事件」由 SSE 推送（服务端每 15 秒心跳）。
-        安装类任务将在阶段 5 出现。
+        每次计划、确认、执行、取消都会写入审计。
       </p>
       <ul id="task-list" class="audit"></ul>
       <h2>实时事件</h2>
@@ -137,7 +140,7 @@
   </main>
 
   <footer>
-    <p>仅监听回环地址 · 关闭了 OpenAPI 文档 · 所有结论均标注证据等级 · 阶段 4 无写接口</p>
+    <p>仅监听回环地址 · 关闭了 OpenAPI 文档 · 所有结论均标注证据等级 · 写操作需会话 + CSRF + Origin 三重校验</p>
   </footer>
 
   <script src="/assets/app.js"></script>

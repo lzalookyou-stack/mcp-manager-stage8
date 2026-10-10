@@ -1,10 +1,13 @@
 /*
- * mcp-manager 控制台脚本（阶段 4：只读交互 + SSE）。
+ * mcp-manager 控制台脚本（发现 · 安装 · 卸载 · 回滚 + SSE）。
  *
  * 安全约定：
  * - **只使用 textContent / createElement 写入 DOM**，全程不使用
  *   innerHTML / insertAdjacentHTML / eval / new Function；
- * - 所有请求均为 GET，与后端"阶段 4 无写接口"的设计一致；
+ * - 写操作（安装 / 卸载 / 回滚）必须依次经过：生成计划 → 人工确认 → 执行。
+ *   会话 Cookie 由服务端下发（HttpOnly），CSRF 令牌只保存在**内存变量**中，
+ *   不写入 localStorage / sessionStorage；
+ * - 确认令牌由后端在确认时一次性下发，仅用于紧随其后的执行请求；
  * - 服务端错误如实展示（含 search_unavailable / github_error 的 kind），
  *   不把失败伪装成"没有结果"。
  */
@@ -35,6 +38,72 @@ async function getJSON(url) {
     throw new Error(code + kind + (detail ? "：" + detail : ""));
   }
   return body;
+}
+
+/* ------------------------------------------------------------------ */
+/* 会话与写请求                                                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * CSRF 令牌只放内存：刷新页面即失效并重新建立会话，
+ * 避免令牌被持久化后长期有效。
+ */
+let csrfToken = null;
+
+async function ensureSession(force) {
+  if (csrfToken && !force) {
+    return csrfToken;
+  }
+  const resp = await fetch("/api/session", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!resp.ok) {
+    throw new Error("无法建立会话（HTTP " + resp.status + "）");
+  }
+  const token = resp.headers.get("X-CSRF-Token");
+  if (!token) {
+    throw new Error("服务端未下发 CSRF 令牌，写操作已被拒绝");
+  }
+  csrfToken = token;
+  return token;
+}
+
+/*
+ * 写请求统一入口：自动带上会话 Cookie（同源）与 CSRF 头。
+ * Origin 头由浏览器自动添加，服务端会做校验。
+ */
+async function postJSON(url, body) {
+  const token = await ensureSession();
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-CSRF-Token": token,
+    },
+    credentials: "same-origin",
+    cache: "no-store",
+    body: JSON.stringify(body || {}),
+  });
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (err) {
+    data = null;
+  }
+  if (resp.status === 403) {
+    // 会话可能已过期：丢弃令牌，下次请求重新建立。
+    csrfToken = null;
+  }
+  if (!resp.ok) {
+    const code = data && data.error ? data.error : "HTTP " + resp.status;
+    const detail = data && data.detail ? data.detail : "";
+    throw new Error(code + (detail ? "：" + detail : ""));
+  }
+  return data;
 }
 
 function el(tag, className, text) {
@@ -103,6 +172,26 @@ async function refreshStats() {
   } catch (err) {
     setText("stat-total", "读取失败：" + err.message);
   }
+  await refreshPending();
+}
+
+/*
+ * 「待确认操作」与「失败任务」从操作历史统计，不使用占位数字：
+ * 没有数据就显示 0，读取失败则显式说明失败，绝不假装是 0。
+ */
+async function refreshPending() {
+  try {
+    const data = await getJSON("/api/operations?limit=200");
+    const items = data.items || [];
+    const pendingStatuses = ["pending", "awaiting_confirmation", "approved"];
+    const pending = items.filter((op) => pendingStatuses.indexOf(op.status) >= 0).length;
+    const failed = items.filter((op) => op.status === "failed").length;
+    setText("stat-pending", pending);
+    setText("stat-failed", failed);
+  } catch (err) {
+    setText("stat-pending", "读取失败：" + err.message);
+    setText("stat-failed", "读取失败：" + err.message);
+  }
 }
 
 function renderPluginRows(items) {
@@ -165,13 +254,17 @@ function renderInstalled(items) {
     tr.appendChild(el("td", null, p.name));
     tr.appendChild(el("td", null, p.install_status));
     tr.appendChild(el("td", null, p.pinned_ref || "未固定"));
-    tr.appendChild(el("td", null, "—（阶段 5）"));
+    tr.appendChild(el("td", null, p.installed_path || "—"));
     tr.appendChild(el("td", null, fmtTime(p.updated_at)));
     const actionCell = document.createElement("td");
-    const btn = el("button", "ghost", "安装（阶段 5）");
-    btn.type = "button";
-    btn.disabled = true;
-    actionCell.appendChild(btn);
+    if (p.install_status === "succeeded") {
+      actionCell.appendChild(actionButton("卸载", () => requestPlan("uninstall", p.id)));
+      if (p.rollback_available) {
+        actionCell.appendChild(actionButton("回滚", () => requestPlan("rollback", p.id)));
+      }
+    } else {
+      actionCell.appendChild(actionButton("安装", () => requestPlan("install", p.id)));
+    }
     tr.appendChild(actionCell);
     tbody.appendChild(tr);
   }
@@ -359,6 +452,14 @@ function renderCandidates() {
     actionCell.appendChild(actionButton("检查", () => inspectPlugin(p.id)));
     actionCell.appendChild(actionButton("审查", () => reviewPlugin(p.id)));
     actionCell.appendChild(actionButton("详情", () => showDetail(p.id)));
+    if (p.install_status === "succeeded") {
+      actionCell.appendChild(actionButton("卸载", () => requestPlan("uninstall", p.id)));
+      if (p.rollback_available) {
+        actionCell.appendChild(actionButton("回滚", () => requestPlan("rollback", p.id)));
+      }
+    } else {
+      actionCell.appendChild(actionButton("申请安装", () => requestPlan("install", p.id)));
+    }
     tr.appendChild(actionCell);
 
     tbody.appendChild(tr);
@@ -561,6 +662,299 @@ function showDetail(id) {
 
   for (const note of report.notes || []) {
     panel.appendChild(el("p", "note", note));
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 操作：生成计划 → 人工确认 → 执行                                    */
+/* ------------------------------------------------------------------ */
+
+const ACTION_LABELS = {
+  install: "安装",
+  uninstall: "卸载",
+  rollback: "回滚",
+};
+
+/* 当前正在处理的操作（计划 → 确认 → 执行） */
+let currentOperation = null;
+/* 确认后由服务端一次性下发的令牌；仅内存持有，用于紧随其后的执行。 */
+let confirmationToken = null;
+
+function actionLabel(action) {
+  return ACTION_LABELS[action] || action;
+}
+
+function showOperationPanel() {
+  activateTab("overview");
+  show("operation-title", true);
+  show("operation-panel", true);
+  const panel = document.getElementById("operation-panel");
+  if (panel) {
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function operationMessage(text) {
+  const panel = document.getElementById("operation-panel");
+  showOperationPanel();
+  clear(panel);
+  panel.appendChild(el("p", "note", text));
+}
+
+function definitionRows(container, rows) {
+  const dl = document.createElement("dl");
+  dl.className = "stats";
+  for (const [key, value] of rows) {
+    dl.appendChild(el("dt", null, key));
+    dl.appendChild(el("dd", null, value));
+  }
+  container.appendChild(dl);
+}
+
+function bulletList(container, lines) {
+  if (!lines.length) {
+    return;
+  }
+  const ul = document.createElement("ul");
+  ul.className = "audit";
+  for (const line of lines) {
+    ul.appendChild(el("li", null, line));
+  }
+  container.appendChild(ul);
+}
+
+function simpleTable(container, headers, rows) {
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const name of headers) {
+    headRow.appendChild(el("th", null, name));
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const cell of row) {
+      tr.appendChild(el("td", null, cell));
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+async function requestPlan(action, pluginId) {
+  currentOperation = null;
+  confirmationToken = null;
+  operationMessage("正在生成" + actionLabel(action) + "计划…");
+  try {
+    const op = await postJSON("/api/" + action + "/plan", { plugin_id: pluginId });
+    currentOperation = op;
+    renderOperation();
+  } catch (err) {
+    operationMessage(actionLabel(action) + "计划生成失败：" + err.message);
+  }
+}
+
+function renderOperation() {
+  const op = currentOperation;
+  const panel = document.getElementById("operation-panel");
+  showOperationPanel();
+  clear(panel);
+  if (!op) {
+    return;
+  }
+
+  const plan = op.plan || {};
+  panel.appendChild(el("h3", null,
+    actionLabel(op.action) + "计划 · " + (plan.plugin_name || op.plugin_id)));
+
+  definitionRows(panel, [
+    ["操作 ID", op.id],
+    ["插件 ID", op.plugin_id],
+    ["动作", actionLabel(op.action)],
+    ["状态", op.status],
+    ["发起人", op.actor],
+    ["创建时间", fmtTime(op.created_at)],
+  ]);
+
+  if (op.plan) {
+    definitionRows(panel, [
+      ["类型", plan.kind],
+      ["来源", plan.source],
+      ["固定 commit", plan.pinned_ref ? String(plan.pinned_ref).slice(0, 12) : "未固定"],
+      ["目标目录", plan.target_dir],
+      ["配置路径", plan.config_path || "—"],
+      ["需要网络", plan.network_required ? "是" : "否"],
+      ["会启动进程", plan.spawns_process ? "是" : "否"],
+      ["计划摘要", plan.plan_digest ? String(plan.plan_digest).slice(0, 16) : "—"],
+    ]);
+
+    const files = plan.files || [];
+    panel.appendChild(el("h4", null, "文件变更（" + files.length + " 个）"));
+    if (files.length) {
+      simpleTable(
+        panel,
+        ["相对路径", "动作", "大小", "sha256"],
+        files.map((f) => [
+          f.path,
+          f.action,
+          f.size,
+          f.sha256 ? String(f.sha256).slice(0, 12) : "—",
+        ])
+      );
+    } else {
+      panel.appendChild(el("p", "note", "本计划不含文件变更。"));
+    }
+
+    const commands = plan.commands || [];
+    panel.appendChild(el("h4", null, "将执行的命令（" + commands.length + " 条）"));
+    if (commands.length) {
+      bulletList(panel, commands.map((c) => c.argv.join(" ") + " —— " + c.purpose));
+    } else {
+      panel.appendChild(el("p", "note",
+        "本计划不含任何命令：本系统默认禁止自动执行仓库里的安装脚本。"));
+    }
+
+    const perms = plan.permissions || [];
+    const runtime = plan.runtime_requirements || [];
+    if (perms.length || runtime.length) {
+      panel.appendChild(el("h4", null, "权限与运行时要求"));
+      bulletList(
+        panel,
+        perms.map((p) => "权限：" + p).concat(runtime.map((r) => "运行时：" + r))
+      );
+    }
+
+    const review = plan.review || {};
+    if (Object.keys(review).length) {
+      panel.appendChild(el("h4", null, "安全审查摘要"));
+      bulletList(
+        panel,
+        Object.entries(review).map(([key, value]) => [
+          key,
+          typeof value === "object" ? JSON.stringify(value) : String(value),
+        ].join("："))
+      );
+    }
+
+    if (plan.rollback_plan) {
+      panel.appendChild(el("h4", null, "回滚方式"));
+      panel.appendChild(el("p", "note", plan.rollback_plan));
+    }
+    if (plan.failure_handling) {
+      panel.appendChild(el("h4", null, "失败处理"));
+      panel.appendChild(el("p", "note", plan.failure_handling));
+    }
+    for (const note of plan.notes || []) {
+      panel.appendChild(el("p", "note", note));
+    }
+  }
+
+  if (op.result) {
+    panel.appendChild(el("h4", null, "执行结果"));
+    panel.appendChild(el("p", "note", JSON.stringify(op.result)));
+  }
+  if (op.error) {
+    panel.appendChild(el("h4", null, "错误"));
+    panel.appendChild(el("p", "note", op.error));
+  }
+
+  const actions = el("div", "actions", null);
+  if (op.status === "awaiting_confirmation" || op.status === "pending") {
+    if (confirmationToken) {
+      actions.appendChild(opButton("执行（已确认）", "primary", executeCurrent));
+    } else {
+      actions.appendChild(opButton("确认并执行", "primary", confirmAndExecute));
+      actions.appendChild(opButton("仅确认（不执行）", "ghost", confirmOnly));
+    }
+    actions.appendChild(opButton("取消此操作", "ghost", cancelCurrent));
+  } else if (op.status === "approved") {
+    actions.appendChild(opButton("执行", "primary", executeCurrent));
+    actions.appendChild(opButton("取消此操作", "ghost", cancelCurrent));
+  }
+  panel.appendChild(actions);
+
+  panel.appendChild(el("p", "note",
+    "确认令牌绑定当前计划摘要：计划一旦变化（例如重新生成），原令牌立即失效。"));
+}
+
+function opButton(label, className, handler) {
+  const btn = el("button", className || "mini", label);
+  btn.type = "button";
+  btn.addEventListener("click", handler);
+  return btn;
+}
+
+async function confirmOnly() {
+  const op = currentOperation;
+  if (!op) {
+    return;
+  }
+  operationMessage("正在确认计划…");
+  try {
+    const data = await postJSON(
+      "/api/operations/" + encodeURIComponent(op.id) + "/confirm", {}
+    );
+    confirmationToken = data.confirmation_token;
+    currentOperation = Object.assign({}, op, { status: "approved" });
+    renderOperation();
+    const panel = document.getElementById("operation-panel");
+    panel.appendChild(el("p", "note",
+      "已确认（令牌已下发，仅保存在本页内存中）。点击「执行」才会真正落地变更。"));
+  } catch (err) {
+    operationMessage("确认失败：" + err.message);
+  }
+}
+
+async function confirmAndExecute() {
+  await confirmOnly();
+  if (confirmationToken) {
+    await executeCurrent();
+  }
+}
+
+async function executeCurrent() {
+  const op = currentOperation;
+  if (!op || !confirmationToken) {
+    operationMessage("缺少确认令牌，无法执行。请重新生成计划并确认。");
+    return;
+  }
+  operationMessage("正在执行…");
+  try {
+    const updated = await postJSON(
+      "/api/operations/" + encodeURIComponent(op.id) + "/execute",
+      { confirmation_token: confirmationToken }
+    );
+    currentOperation = updated;
+    confirmationToken = null;
+    renderOperation();
+    refreshAll();
+  } catch (err) {
+    // 令牌是一次性的：执行失败后必须重新生成计划并重新确认。
+    confirmationToken = null;
+    currentOperation = Object.assign({}, op, { error: err.message });
+    renderOperation();
+  }
+}
+
+async function cancelCurrent() {
+  const op = currentOperation;
+  if (!op) {
+    return;
+  }
+  operationMessage("正在取消…");
+  try {
+    const updated = await postJSON(
+      "/api/operations/" + encodeURIComponent(op.id) + "/cancel", {}
+    );
+    currentOperation = updated;
+    confirmationToken = null;
+    renderOperation();
+    refreshAll();
+  } catch (err) {
+    operationMessage("取消失败：" + err.message);
   }
 }
 

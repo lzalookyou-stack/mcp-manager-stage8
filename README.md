@@ -54,15 +54,27 @@ python3 -m venv .venv
 
 依赖全部**精确锁定**（`==`），避免环境漂移。`requirements.txt` 里每条依赖都写了用途。
 
-### 运行网页控制台
+### 运行网页控制台（可视化管理）
 
 ```bash
-.venv/bin/python run_web.py
-# 打开 http://127.0.0.1:8765/
+bash scripts/start_web_console.sh          # 后台启动（幂等），默认 127.0.0.1:8765
+bash scripts/start_web_console.sh status   # 查看运行状态
+bash scripts/start_web_console.sh stop     # 停止
 ```
+
+打开 `http://127.0.0.1:8765/`，即可在浏览器里**可视化地**完成：
+
+- **发现**：搜索 GitHub 公开仓库 → 深度检查（固定 commit）→ 静态安全审查 → 候选对比；
+- **已安装**：查看安装状态、位置、可回滚版本；
+- **安装 / 卸载 / 回滚**：点击后先生成**计划**，页面逐条列出文件变更、将执行的命令、
+  权限与运行时要求、审查摘要；**你核对后点「确认」，再点「执行」**才会真正落地变更。
 
 默认**只监听 `127.0.0.1`**。若显式改绑非回环地址，必须同时设置
 `MCPM_ALLOW_NON_LOOPBACK=1`，否则进程启动即失败——这是刻意的防误配。
+
+写操作必须同时通过 **Host + Origin + 会话 Cookie + `X-CSRF-Token`** 四重校验；
+CSRF 令牌只保存在页面内存中（不写 `localStorage`），刷新即失效并重新建立会话。
+确认令牌由服务端在「确认」时一次性下发，且绑定当前计划摘要——计划一变即失效。
 
 ### 运行 MCP Server（stdio）
 
@@ -72,21 +84,51 @@ python3 -m venv .venv
 
 stdio 模式下 **stdout 只允许协议内容**，因此该脚本不打印任何日志。
 
+### 注册为 Operit 的 MCP Server（可选）
+
+```bash
+bash scripts/install_mcp_plugin.sh
+```
+
+该脚本把本服务注册到 Operit 的 MCP 配置里，**全部操作幂等**，可反复执行：
+
+1. 在 Linux 侧 `~/mcp_plugins/mcp_manager/` 生成一个**转发脚本** `mcp_entry.sh`；
+   真实代码始终只有工作区里这一份（与 `memory-network` 的部署约定一致），
+   因此不存在「两份代码不同步」的问题。
+2. 在 `/sdcard/Download/Operit/mcp_plugins/mcp_config.json` 写入
+   `mcpServers.mcp_manager` 与 `pluginMetadata.mcp_manager`；
+   **写入前自动备份**，写入后自校验 JSON，只增改本插件、不动其他条目。
+
+注册完成后，到 Operit 的 MCP 管理页刷新/重启，即可看到 **MCP Manager** 且处于启用状态。
+
+`autoApprove` 只包含 **11 个只读工具**。`request_install` 与 `request_operation`
+会创建操作计划，**不**列入自动批准——Agent 每次调用仍需你批准；
+而**确认与执行工具根本不存在**，Agent 无论如何都无法自行完成授权。
+
+> 令牌默认**不写入**配置文件（该文件位于共享存储且为明文）。
+> 确需写入时显式加参数：
+> `MCPM_GITHUB_TOKEN=ghp_xxx bash scripts/install_mcp_plugin.sh --with-token`
+
 ### 跑全部验证
 
 ```bash
-bash scripts/verify_all.sh
+bash scripts/verify_all.sh          # 静态检查 → 测试 → MCP 冒烟 → HTTP 端到端
+bash scripts/verify_frontend.sh     # 前端写操作链路（需要 Node 18+）
 ```
 
-依次执行：`ruff check` → `pytest` → MCP stdio 冒烟。退出码 0 表示全部通过。
-
-也可单独执行：
+`verify_all.sh` 依次执行 4 步，退出码 0 表示全部通过。也可单独执行：
 
 ```bash
-.venv/bin/ruff check .                    # 静态检查
-.venv/bin/python -m pytest                # 测试套件（252 项）
-.venv/bin/python scripts/smoke_mcp_stdio.py   # 冒烟（21 项，真实子进程）
+.venv/bin/ruff check .                        # 静态检查
+.venv/bin/python -m pytest                    # 测试套件（252 项）
+.venv/bin/python scripts/smoke_mcp_stdio.py   # MCP 冒烟（21 项，真实子进程）
+bash scripts/verify_stage8_http.sh            # HTTP 端到端（47 项，真实 uvicorn + curl）
+node scripts/verify_frontend.js               # 前端链路（10 项，真实加载 app.js）
 ```
+
+`verify_frontend.sh` 会另起一个**独立实例**（内存文件来源 + 独立数据目录 + 独立端口），
+用 Node 真实加载 `web/assets/app.js` 并驱动「会话 → 计划 → 确认 → 执行」，
+断言最终状态为 `succeeded`——执行的是**真实文件**，而不是复刻出来的逻辑。
 
 > **不要并发跑测试。** `pytest.ini` 已禁用 xdist 并注释了原因：本机可用内存约 2.4 GB，
 > 并发会导致 OOM。
@@ -112,7 +154,13 @@ bash scripts/verify_all.sh
 | `GITHUB_TOKEN` | 无 | GitHub 只读访问令牌；未配置时搜索能力**显式不可用** |
 | `MCPM_PYTHON` | 无 | 冒烟脚本使用的解释器（默认 `.venv/bin/python`） |
 
-`GITHUB_TOKEN` 也可以由 `/root/.git-credentials`（`credential.helper=store`）提供。
+**注意**：程序**不会**自动读取 `/root/.git-credentials`——该文件即使存在也不读。
+必须显式导出环境变量，例如：
+
+```bash
+export MCPM_GITHUB_TOKEN=$(sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p' /root/.git-credentials | head -1)
+```
+
 **令牌不会出现在任何输出、日志或响应中。**
 
 ---
@@ -162,7 +210,21 @@ bash scripts/verify_all.sh
 | `app/web/` | FastAPI 应用（端点、安全中间件、异常映射） |
 | `app/mcp_server/` | MCP 工具面 |
 | `app/events.py` | 事件总线（SSE 推送） |
-| `web/` | 原生 HTML/CSS/JS 控制台（无构建步骤） |
+| `web/` | 原生 HTML/CSS/JS 控制台（无构建步骤）；**写操作入口在此** |
+| `scripts/` | 部署与验证脚本（见下） |
+| `var/` | 运行期数据目录（SQLite、快照、配置根、控制台日志与 PID） |
+
+`scripts/` 里的脚本：
+
+| 脚本 | 用途 |
+|---|---|
+| `install_mcp_plugin.sh` | 把本服务注册到 Operit 的 MCP 配置（幂等、写入前备份） |
+| `start_web_console.sh` | 启动 / 停止 / 查看可视化管理控制台 |
+| `mcp_entry.sh` | MCP stdio 入口（供 MCP 客户端调用；解释器优先级 `MCPM_PYTHON` > 项目 `.venv` > `python3`） |
+| `verify_all.sh` | 一键四步验证（静态检查 → 测试 → MCP 冒烟 → HTTP 端到端） |
+| `verify_stage8_http.sh` | HTTP 端到端（47 项，真实 uvicorn + curl） |
+| `verify_frontend.sh` + `verify_frontend.js` | 前端写操作链路（真实加载 `app.js`） |
+| `smoke_mcp_stdio.py` | MCP stdio 冒烟（21 项，真实子进程） |
 
 ### 证据分级（贯穿全项目的硬性纪律）
 
